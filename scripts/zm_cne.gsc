@@ -214,7 +214,8 @@ function cne_main()
     while ( true )
     {
         cne_roll();
-        while ( cne_round() == round )
+        // < 2: the counter may still go 0 -> 1 when round 1 starts after the first roll
+        while ( cne_round() == round || cne_round() < 2 )
         {
             wait 0.25;
         }
@@ -252,6 +253,11 @@ function cne_roll()
     level.cne.last_c = c;
     level.cne.last_e = e;
     setdvar( @"cne_hud", c.name + ", " + e.name );
+    level.cne.combo = c.name + ", " + e.name;
+    foreach ( player in level.players )
+    {
+        player cne_tell_guest();
+    }
     level thread cne_listen( c, e );
     wait 3;
     setdvar( @"cne_ca", "0" );
@@ -284,6 +290,16 @@ function cne_is_illegal( c, e )
     return 0;
 }
 
+// the cne_* dvars only exist on the host's machine, so guests get the combo as an engine-networked message
+// shortcut: guests have no persistent combo HUD, only this message at each roll and each spawn
+function cne_tell_guest()
+{
+    if ( isdefined( self ) && self != cne_host() && isdefined( level.cne.combo ) )
+    {
+        self iprintlnbold( level.cne.combo );
+    }
+}
+
 function cne_in( arr, value )
 {
     foreach ( v in arr )
@@ -308,13 +324,19 @@ function cne_listen( c, e )
     while ( true )
     {
         level waittill( c.ev );
-        level thread [[ e.fn ]]();
+        // not threaded, as in BO3: the effect's own waits block the next trigger
+        level [[ e.fn ]]();
         wait 0.3;
     }
 }
 
 function cne_round()
 {
+    // the field the BO7 round manager increments (script_77dca3b46e01eb1e function_c00961f92fc28240)
+    if ( isdefined( level.var_6781718da4f78d1c ) && isdefined( level.var_6781718da4f78d1c.var_392f37fdba9f6777 ) )
+    {
+        return level.var_6781718da4f78d1c.var_392f37fdba9f6777;
+    }
     if ( isdefined( level.round_number ) )
     {
         return level.round_number;
@@ -384,10 +406,17 @@ function cne_options()
     vals[ 2 ] = 0;
     cursor = 0;
     // only movement is blocked: freezecontrols may stop the host button reads in BO7
-    // shortcut: players joining during the options screen can move, fine for a few seconds
+    // as in BO3 only the host is frozen; guests cannot see the screen (the dvars stay on the host), so they are told
     foreach ( player in level.players )
     {
-        player namespace_214d79f87f4bf971::set( "cne_options", "allow_movement", 0 );
+        if ( player == cne_host() )
+        {
+            player namespace_214d79f87f4bf971::set( "cne_options", "allow_movement", 0 );
+        }
+        else
+        {
+            player iprintlnbold( "Host is choosing the Cause And Effect options" );
+        }
     }
     level.cne.opt_btn = undefined;
     last = -1;
@@ -505,6 +534,7 @@ function cne_on_spawned( params )
     self thread cne_player_bridge( "reload_start", "cne_reload" );
     self thread cne_player_bridge( "weapon_change", "cne_swap" );
     self thread cne_watch_slide();
+    self cne_tell_guest();
 }
 
 function cne_player_bridge( from, to )
@@ -637,7 +667,8 @@ function cne_players()
     out = [];
     foreach ( player in level.players )
     {
-        if ( isdefined( player ) && isalive( player ) )
+        // BO3 is_player_valid: downed players are skipped
+        if ( isdefined( player ) && isalive( player ) && !istrue( player.inlaststand ) )
         {
             out[ out.size ] = player;
         }
@@ -858,6 +889,17 @@ function cne_pap_level( w )
 function cne_call_pap_weapon( w, cur, tier )
 {
     self.cne_wnew = self utility::callsharedfunc( #"pack_a_punch", #"pap_weapon", w, cur, 0, undefined, undefined, 0, 0, tier );
+    self.cne_wdone = 1;
+}
+
+// waits for the threaded pap call: a fixed 2 frames could fall through to the rebuild and pap twice
+function cne_wait_wnew()
+{
+    for ( i = 0; i < 40 && !istrue( self.cne_wdone ); i++ )
+    {
+        waitframe();
+    }
+    return istrue( self.cne_wdone );
 }
 
 function cne_call_rebuild_pap( base, tier )
@@ -868,6 +910,7 @@ function cne_call_rebuild_pap( base, tier )
         ammo_mod = self utility::callsharedfunc( #"ammo_mod", #"hash_cf1012c4d313de70", base );
     }
     self.cne_wnew = self utility::callsharedfunc( #"pack_a_punch", #"rebuild_pap_weapon", base, tier, ammo_mod );
+    self.cne_wdone = 1;
 }
 
 // FuzMenu menu_pap on the held gun
@@ -892,9 +935,12 @@ function cne_pap( tier )
         return;
     }
     self.cne_wnew = undefined;
+    self.cne_wdone = undefined;
     self thread cne_call_pap_weapon( w, cur, tier );
-    waitframe();
-    waitframe();
+    if ( !self cne_wait_wnew() )
+    {
+        return;
+    }
     w_new = self.cne_wnew;
     if ( isdefined( w_new ) && !isnullweapon( w_new ) )
     {
@@ -913,9 +959,12 @@ function cne_pap( tier )
         base = w;
     }
     self.cne_wnew = undefined;
+    self.cne_wdone = undefined;
     self thread cne_call_rebuild_pap( base, tier );
-    waitframe();
-    waitframe();
+    if ( !self cne_wait_wnew() )
+    {
+        return;
+    }
     w_new = self.cne_wnew;
     if ( isdefined( w_new ) && !isnullweapon( w_new ) )
     {
@@ -926,6 +975,18 @@ function cne_pap( tier )
         self switchtoweapon( w_new );
         self utility::callsharedfunc( #"pack_a_punch", #"set_pap_level", w_new, tier, 1, base );
     }
+}
+
+// one gun/pap/camo change at a time per player: overlapping take/give calls lose or double weapons
+function cne_weapon_job( fn, arg )
+{
+    if ( istrue( self.cne_busy ) )
+    {
+        return;
+    }
+    self.cne_busy = 1;
+    self [[ fn ]]( arg );
+    self.cne_busy = undefined;
 }
 
 function cne_gun_pool()
@@ -1229,6 +1290,8 @@ function cne_e_gum_use()
     {
         player thread cne_use_gum( pool[ randomint( pool.size ) ] );
     }
+    // BO3 cooldown: blocks the listener while the gums play out
+    wait 3;
 }
 
 function cne_e_gum_give()
@@ -1260,7 +1323,7 @@ function cne_e_gun()
 {
     foreach ( player in cne_players() )
     {
-        player thread cne_give_gun( 0 );
+        player thread cne_weapon_job( &cne_give_gun, 0 );
     }
 }
 
@@ -1268,7 +1331,7 @@ function cne_e_gun_pap()
 {
     foreach ( player in cne_players() )
     {
-        player thread cne_give_gun( 1 );
+        player thread cne_weapon_job( &cne_give_gun, 1 );
     }
 }
 
@@ -1277,7 +1340,7 @@ function cne_e_pap_toggle()
     foreach ( player in cne_players() )
     {
         w = player getcurrentweapon();
-        player thread cne_pap( player cne_pap_level( w ) > 0 ? 0 : 1 );
+        player thread cne_weapon_job( &cne_pap, player cne_pap_level( w ) > 0 ? 0 : 1 );
     }
 }
 
@@ -1287,7 +1350,7 @@ function cne_e_pap()
     {
         if ( player cne_pap_level( player getcurrentweapon() ) == 0 )
         {
-            player thread cne_pap( 1 );
+            player thread cne_weapon_job( &cne_pap, 1 );
         }
     }
 }
@@ -1298,7 +1361,7 @@ function cne_e_unpap()
     {
         if ( player cne_pap_level( player getcurrentweapon() ) > 0 )
         {
-            player thread cne_pap( 0 );
+            player thread cne_weapon_job( &cne_pap, 0 );
         }
     }
 }
@@ -1409,6 +1472,8 @@ function cne_e_zombie_aat()
     params.var_181dac8470cfcf7e = "torso_upper";
     params.var_3652debfa8ff37f2 = zombie.origin;
     zombie thread [[ aat.var_511d306b51d343a2 ]]( params );
+    // BO3 cooldown
+    wait 2;
 }
 
 function cne_e_aat_give()
@@ -1489,7 +1554,7 @@ function cne_e_jump()
     }
 }
 
-function cne_camo_one()
+function cne_camo_one( unused )
 {
     self endon( "disconnect" );
     gun = self getcurrentweapon();
@@ -1527,7 +1592,7 @@ function cne_e_camo()
 {
     foreach ( player in cne_players() )
     {
-        player thread cne_camo_one();
+        player thread cne_weapon_job( &cne_camo_one, 0 );
     }
 }
 
