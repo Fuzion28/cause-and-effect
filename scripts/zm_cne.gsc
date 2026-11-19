@@ -589,11 +589,11 @@ function cne_on_zombie_killed( params )
     {
         level notify( "cne_zdie" );
     }
-    if ( isdefined( params.var_917e21c98d80255e ) && isplayer( params.var_917e21c98d80255e ) && ( params.var_f5a880abf0b199dc === "MOD_HEAD_SHOT" || params.var_181dac8470cfcf7e === "head" || params.var_181dac8470cfcf7e === "helmet" ) )
+    if ( isdefined( params.var_917e21c98d80255e ) && isplayer( params.var_917e21c98d80255e ) && ( ( isdefined( params.var_f5a880abf0b199dc ) && params.var_f5a880abf0b199dc == "MOD_HEAD_SHOT" ) || ( isdefined( params.var_181dac8470cfcf7e ) && ( params.var_181dac8470cfcf7e == "head" || params.var_181dac8470cfcf7e == "helmet" ) ) ) )
     {
         level notify( "cne_headshot" );
     }
-    if ( params.var_f5a880abf0b199dc === "MOD_GRENADE" || params.var_f5a880abf0b199dc === "MOD_GRENADE_SPLASH" )
+    if ( isdefined( params.var_f5a880abf0b199dc ) && ( params.var_f5a880abf0b199dc == "MOD_GRENADE" || params.var_f5a880abf0b199dc == "MOD_GRENADE_SPLASH" ) )
     {
         level notify( "cne_grenade" );
     }
@@ -1100,8 +1100,15 @@ function cne_give_gun( paped )
     cne_fill_ammo( w );
     if ( paped )
     {
-        wait 0.5;
-        self cne_pap( 1 );
+        // cne_pap upgrades the held gun: wait for the switch to the new one to finish
+        for ( i = 0; i < 40 && self getcurrentweapon() != w; i++ )
+        {
+            wait 0.1;
+        }
+        if ( self getcurrentweapon() == w )
+        {
+            self cne_pap( 1 );
+        }
     }
 }
 
@@ -1143,7 +1150,7 @@ function cne_reset_on_new_combo( kind )
         }
         if ( kind == "speed" )
         {
-            player setmovespeedscale( 1 );
+            player namespace_214d79f87f4bf971::function_9a5ee51116044765( "cne_speed" );
         }
         else if ( kind == "sprint" )
         {
@@ -1406,7 +1413,8 @@ function cne_e_speed()
     level thread cne_reset_on_new_combo( "speed" );
     foreach ( player in cne_players() )
     {
-        player setmovespeedscale( randomfloatrange( 0.5, 1.5 ) );
+        // BO7 recomputes the speed from its val system and overwrites setmovespeedscale
+        player namespace_214d79f87f4bf971::set( "cne_speed", "move_speed_scale", randomfloatrange( 0.5, 1.5 ) );
     }
 }
 
@@ -1501,7 +1509,11 @@ function cne_e_damage1()
 {
     foreach ( player in cne_players() )
     {
-        player dodamage( 1, player.origin );
+        // dodamage goes to the BO7 armor first, which hides 1 damage: take it from health directly
+        if ( player.health > 1 )
+        {
+            player.health = player.health - 1;
+        }
     }
 }
 
