@@ -237,7 +237,7 @@ function cne_roll()
         e = level.cne.effects[ randomint( level.cne.effects.size ) ];
         setdvar( @"cne_c", c.name );
         setdvar( @"cne_e", e.name );
-        cne_sound_all( "evt_perk_deny" );
+        cne_sound_all( "fly_pickup_deny" );
     }
     while ( cne_is_illegal( c, e ) )
     {
@@ -246,9 +246,9 @@ function cne_roll()
         e = level.cne.effects[ randomint( level.cne.effects.size ) ];
         setdvar( @"cne_c", c.name );
         setdvar( @"cne_e", e.name );
-        cne_sound_all( "evt_perk_deny" );
+        cne_sound_all( "fly_pickup_deny" );
     }
-    cne_sound_all( "purchase" );
+    cne_sound_all( "ui_select_purchase_confirm" );
     level.cne.used[ level.cne.used.size ] = c.name + "|" + e.name;
     level.cne.last_c = c;
     level.cne.last_e = e;
@@ -1100,12 +1100,7 @@ function cne_give_gun( paped )
     cne_fill_ammo( w );
     if ( paped )
     {
-        // cne_pap upgrades the held gun: wait for the switch to the new one to finish
-        for ( i = 0; i < 40 && self getcurrentweapon() != w; i++ )
-        {
-            wait 0.1;
-        }
-        if ( self getcurrentweapon() == w )
+        if ( self cne_wait_held( w ) )
         {
             self cne_pap( 1 );
         }
@@ -1172,6 +1167,7 @@ function cne_reset_on_new_combo( kind )
     level.cne.toggle[ kind ] = undefined;
 }
 
+// BO3: flag = !flag from 0, then allow( flag ): the 1st trigger allows (no-op), the 2nd blocks
 function cne_toggle( kind )
 {
     if ( !isdefined( level.cne.toggle ) )
@@ -1196,18 +1192,31 @@ function cne_spawn_zombie()
     agent_manager::spawn_agent( "zombie_base", origin, ( 0, randomint( 360 ), 0 ), isdefined( level.zombie_team ) ? level.zombie_team : "team_two_hundred" );
 }
 
-function cne_e_zombie()
+// BO3 does zombie_total += n; BO7's round total is var_5c8829ccd69f3862 (zm_round_spawning)
+function cne_add_zombies( n )
 {
-    cne_spawn_zombie();
-}
-
-function cne_e_zombies5()
-{
-    for ( i = 0; i < 5; i++ )
+    rs = level.var_a009ab14ee0d3223;
+    if ( isdefined( rs ) && isdefined( rs.var_5c8829ccd69f3862 ) && !( isdefined( rs.var_59c4f3931d764b9c ) && rs.var_59c4f3931d764b9c ) )
+    {
+        rs.var_5c8829ccd69f3862 = rs.var_5c8829ccd69f3862 + n;
+        return;
+    }
+    // round spawning already finished (or between rounds): the spawner no longer reads the total
+    for ( i = 0; i < n; i++ )
     {
         cne_spawn_zombie();
         waitframe();
     }
+}
+
+function cne_e_zombie()
+{
+    cne_add_zombies( 1 );
+}
+
+function cne_e_zombies5()
+{
+    cne_add_zombies( 5 );
 }
 
 function cne_e_perk_lose()
@@ -1293,9 +1302,11 @@ function cne_e_gum_use()
     {
         return;
     }
+    // BO3 rolls one gum for everyone
+    name = pool[ randomint( pool.size ) ];
     foreach ( player in cne_players() )
     {
-        player thread cne_use_gum( pool[ randomint( pool.size ) ] );
+        player thread cne_use_gum( name );
     }
     // BO3 cooldown: blocks the listener while the gums play out
     wait 3;
@@ -1315,13 +1326,28 @@ function cne_e_gum_give()
             continue;
         }
         name = pool[ randomint( pool.size ) ];
+        free = [];
+        idle = [];
         for ( slot = 1; slot <= 3; slot++ )
         {
-            if ( !isdefined( player.var_b02f6e7abbbc8a84[ slot ] ) && !player cne_gum_slot_busy( slot ) )
+            if ( player cne_gum_slot_busy( slot ) )
             {
-                player cne_write_gum_slot( slot, name );
-                break;
+                continue;
             }
+            idle[ idle.size ] = slot;
+            if ( !isdefined( player.var_b02f6e7abbbc8a84[ slot ] ) )
+            {
+                free[ free.size ] = slot;
+            }
+        }
+        // BO3 replaces the held gum: with every slot full, overwrite a random idle one
+        if ( free.size > 0 )
+        {
+            player cne_write_gum_slot( free[ 0 ], name );
+        }
+        else if ( idle.size > 0 )
+        {
+            player cne_write_gum_slot( idle[ randomint( idle.size ) ], name );
         }
     }
 }
@@ -1353,11 +1379,17 @@ function cne_e_pap_toggle()
 
 function cne_e_pap()
 {
+    names = cne_aat_names();
     foreach ( player in cne_players() )
     {
         if ( player cne_pap_level( player getcurrentweapon() ) == 0 )
         {
             player thread cne_weapon_job( &cne_pap, 1 );
+        }
+        else if ( names.size > 0 && !cne_is_melee( player getcurrentweapon() ) )
+        {
+            // BO3 repacks an already paped gun, and the repack rolls a random AAT
+            player namespace_cb5c0a8769de6627::function_b166f92c763fbcba( player getcurrentweapon(), names[ randomint( names.size ) ], 1, 1, 1 );
         }
     }
 }
@@ -1522,7 +1554,7 @@ function cne_e_sprint()
     on = cne_toggle( "sprint" );
     foreach ( player in cne_players() )
     {
-        player cne_allow( "sprint", !on );
+        player cne_allow( "sprint", on );
     }
 }
 
@@ -1531,7 +1563,7 @@ function cne_e_ads()
     on = cne_toggle( "ads" );
     foreach ( player in cne_players() )
     {
-        player cne_allow( "ads", !on );
+        player cne_allow( "ads", on );
     }
 }
 
@@ -1540,7 +1572,7 @@ function cne_e_slide()
     on = cne_toggle( "slide" );
     foreach ( player in cne_players() )
     {
-        player cne_allow( "slide", !on );
+        player cne_allow( "slide", on );
     }
 }
 
@@ -1562,7 +1594,7 @@ function cne_e_jump()
     on = cne_toggle( "jump" );
     foreach ( player in cne_players() )
     {
-        player function_92305205d36aa2e1( on ? 0 : 1 );
+        player function_92305205d36aa2e1( on ? 1 : 0 );
     }
 }
 
@@ -1570,7 +1602,8 @@ function cne_camo_one( unused )
 {
     self endon( "disconnect" );
     gun = self getcurrentweapon();
-    if ( !isdefined( gun ) || isnullweapon( gun ) )
+    // the camo re-gives the gun: an upgraded melee weapon would lose its upgrade (tester: no mist, 1 kill per swing)
+    if ( !isdefined( gun ) || isnullweapon( gun ) || cne_is_melee( gun ) )
     {
         return;
     }
@@ -1588,6 +1621,7 @@ function cne_camo_one( unused )
     {
         wait 0.1;
     }
+    clip = self getweaponammoclip( gun );
     self.cne_quiet = 1;
     self takeweapon( gun );
     wait 0.1;
@@ -1595,6 +1629,9 @@ function cne_camo_one( unused )
     self cne_assign_slot( w );
     self switchtoweapon( w );
     cne_fill_ammo( w );
+    // BO3 changes the camo in place: keep the magazine as it was
+    // shortcut: the reserve is still refilled (no stock getter found in the BO7 dumps), read it too if one turns up
+    self setweaponammoclip( w, clip );
     // shortcut: a real swap in this 0.5 s is not counted either
     wait 0.5;
     self.cne_quiet = undefined;
@@ -1790,7 +1827,17 @@ function cne_e_wall_shuffle()
 }
 
 // BO3 function_24b2ba2f: the held gun is rebuilt with random attachments (one per slot), camo / variant / PaP kept
-function cne_atts_one()
+// cne_pap upgrades the held gun: wait for the switch to w to finish (4 s max)
+function cne_wait_held( w )
+{
+    for ( i = 0; i < 40 && self getcurrentweapon() != w; i++ )
+    {
+        wait 0.1;
+    }
+    return self getcurrentweapon() == w;
+}
+
+function cne_atts_one( unused )
 {
     self endon( "disconnect" );
     cur = self getcurrentweapon();
@@ -1872,9 +1919,8 @@ function cne_atts_one()
     self cne_assign_slot( w );
     self switchtoweapon( w );
     cne_fill_ammo( w );
-    if ( tier > 0 )
+    if ( tier > 0 && self cne_wait_held( w ) )
     {
-        wait 0.5;
         self cne_pap( tier );
     }
     // shortcut: a real swap in this 0.5 s is not counted either
@@ -1886,7 +1932,7 @@ function cne_e_atts()
 {
     foreach ( player in cne_players() )
     {
-        player thread cne_atts_one();
+        player thread cne_weapon_job( &cne_atts_one, 0 );
     }
 }
 

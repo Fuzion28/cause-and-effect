@@ -15,7 +15,7 @@ if old then old.enabled=false;if old.clear then pcall(old.clear) end end
 local S={enabled=true,cache={}}
 rawset(_G,"CneView",S)
 
-local WHITE,YELLOW,GREY=0xffffff,0xffd700,0xb4b4b4
+local WHITE,GREY,GREEN,RED,BLUE=0xffffff,0xb4b4b4,0x33ff33,0xff3333,0x0000cc
 local CHARW=0.5   -- average letter width (x font size), used to right-align the cause
 
 local function get(object,key)
@@ -58,20 +58,20 @@ local function label(parent,x,y,w,hh,size)
     end
     return {shadow=pair[1],text=pair[2],x=x,y=y,w=w,h=hh,size=size}
 end
-local function setLabel(l,text,rgb,alpha)
+local function setLabel(l,text,rgb,alpha,ms)
     local c=S.cache[l] or {};S.cache[l]=c
     if c.text~=text then call(l.text,"setText",text);call(l.shadow,"setText",text);c.text=text end
     if rgb and c.rgb~=rgb then call(l.text,"SetRGB",rgb);c.rgb=rgb end
     alpha=alpha or 1
-    if c.alpha~=alpha then call(l.text,"SetAlpha",alpha);call(l.shadow,"SetAlpha",alpha);c.alpha=alpha end
+    if c.alpha~=alpha then call(l.text,"SetAlpha",alpha,ms or 0);call(l.shadow,"SetAlpha",alpha,ms or 0);c.alpha=alpha end
 end
 -- right edge of the text stays at l.x + l.w
-local function setRight(l,text,alpha)
+local function setRight(l,text,alpha,ms)
     local width=math.min(l.w,#text*l.size*CHARW)
     local x=l.x+l.w-width
     local c=S.cache[l] or {};S.cache[l]=c
     if c.rx~=x then place(l.text,x,l.y,width+20,l.h);place(l.shadow,x+1.5,l.y+1.5,width+20,l.h);c.rx=x end
-    setLabel(l,text,WHITE,alpha)
+    setLabel(l,text,WHITE,alpha,ms)
 end
 
 local function displayParent()
@@ -88,9 +88,13 @@ end
 local function clear()
     if S.frame then pcall(call,S.frame,"closeTree") end
     if S.left then pcall(call,S.left,"closeTree") end
-    S.frame=nil;S.left=nil;S.parent=nil;S.cache={}
+    S.frame=nil;S.left=nil;S.parent=nil;S.cache={};S.bar=nil;S.barRow=nil;S.barAlpha=nil
 end
 
+local OPTS={"EFFECTS STACK: ","ALLOW ILLEGAL COMBOS: ","NO REPEAT COMBOS: ","CONFIRM CHOICES"}
+local DESCS={"Effects will not be removed when new ones are added, can eventually lead to game breaking combos",
+    "Illegal combos are ones that contradict each other, such as 'killing zombies spawn zombies'",
+    "When a combo is created, that combo will not be used again",""}
 local function build(parent)
     clear()
     -- top left: current combo
@@ -104,22 +108,28 @@ local function build(parent)
     call(frame,"SetAnchorsAndPosition",0.5,0.5,0,1,-700,700,0,700)
     S.cause=label(frame,0,30,690,32,28)
     S.effect=label(frame,710,30,690,32,28)
-    S.opts={}
-    for i=0,3 do S.opts[i]=label(frame,560,250+i*30,800,28,24) end
+    -- BO3 option highlight: a 0.5 alpha dark blue bar that slides to the selected row in 0.3 s
+    local bar=newElement("UIImage")
+    passive(bar);call(bar,"SetRGB",BLUE);call(bar,"SetAlpha",0);call(frame,"addElement",bar)
+    S.bar=bar;S.barRow=nil
+    S.opts={};S.vals={}
+    for i=0,3 do
+        S.opts[i]=label(frame,560,250+i*30,800,28,24)
+        -- ON / OFF in its own label so it can be coloured like BO3's ^2ON / ^1OFF
+        -- shortcut: x comes from the CHARW width estimate, measure the text if ON/OFF looks offset in game
+        if i<3 then S.vals[i]=label(frame,560+#OPTS[i+1]*24*CHARW,250+i*30,200,28,24) end
+    end
     S.desc=label(frame,300,380,1100,26,20)
     S.help=label(frame,330,410,1100,26,20)
     S.left=left;S.frame=frame;S.parent=parent
 end
 
-local OPTS={"EFFECTS STACK: ","ALLOW ILLEGAL COMBOS: ","NO REPEAT COMBOS: ","CONFIRM CHOICES"}
-local DESCS={"Effects will not be removed when new ones are added, can eventually lead to game breaking combos",
-    "Illegal combos are ones that contradict each other, such as 'killing zombies spawn zombies'",
-    "When a combo is created, that combo will not be used again",""}
 local function render()
     setLabel(S.hud,read("cne_hud"),WHITE,1)
+    -- BO3 roll: 1 s fade in, held while cne_ca is 1 (the GSC holds it 3 s after the result), 1 s fade out
     local shown=read("cne_ca")=="1"
-    setRight(S.cause,read("cne_c"),shown and 1 or 0)
-    setLabel(S.effect,read("cne_e"),WHITE,shown and 1 or 0)
+    setRight(S.cause,read("cne_c"),shown and 1 or 0,1000)
+    setLabel(S.effect,read("cne_e"),WHITE,shown and 1 or 0,1000)
     local opts=read("cne_os")=="1"
     -- cne_view = cursor*8 + effects stack + illegal*2 + no repeat*4
     -- the GSC value wins once it changes, except right after a local key press (it may still lag behind)
@@ -129,9 +139,18 @@ local function render()
     local code=S.view or 0
     local cur=math.floor(code/8)%4
     for i=0,3 do
-        local text=OPTS[i+1]
-        if i<3 then text=text..((math.floor(code/2^i)%2==1) and "ON" or "OFF") end
-        setLabel(S.opts[i],text,(i==cur) and YELLOW or WHITE,opts and 1 or 0)
+        setLabel(S.opts[i],OPTS[i+1],(i==3) and GREEN or WHITE,opts and 1 or 0)
+        if i<3 then
+            local on=math.floor(code/2^i)%2==1
+            setLabel(S.vals[i],on and "ON" or "OFF",on and GREEN or RED,opts and 1 or 0)
+        end
+    end
+    local barAlpha=opts and 0.5 or 0
+    if S.barAlpha~=barAlpha then call(S.bar,"SetAlpha",barAlpha);S.barAlpha=barAlpha end
+    if S.barRow~=cur then
+        local y=250+cur*30
+        call(S.bar,"SetAnchorsAndPosition",0,1,0,1,545,905,y-1,y+27,S.barRow and 300 or 0,get(get(rawget(_G,"LUI"),"EASING"),"outQuadratic"))
+        S.barRow=cur
     end
     setLabel(S.desc,DESCS[cur+1],GREY,opts and 1 or 0)
     setLabel(S.help,"ADS / FIRE or ARROWS to move up/down.   USE or ENTER to select",WHITE,opts and 1 or 0)

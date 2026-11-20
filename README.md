@@ -2,7 +2,7 @@
 
 BO7 Zombies port (Kronos) of **Cause And Effect**, the BO3 mod by LogisticalReaper, ported with the author's permission.
 
-**Test version**: the effects are not all tested in game yet. Please report anything that breaks.
+Version 0.4. Please report anything that breaks. What has and has not been checked in game is listed in [TESTING.md](TESTING.md).
 
 ## How it works
 
@@ -58,9 +58,10 @@ BO7 Zombies port (Kronos) of **Cause And Effect**, the BO3 mod by LogisticalReap
 
 ## Known limits
 
-- The HUD shows on the host only in co-op.
-- Wallbuy ammo may keep its original price when prices are randomised.
-- The camo effect refills the gun's ammo.
+- The HUD shows on the host only in co-op: BO7 has no way to send a dvar to a client, so guests get the combo as a message at each roll and when they spawn. The BO3 "WAITING FOR OTHER PLAYERS" screen is not needed, since only the host picks the options.
+- The camo effect keeps the magazine but refills the reserve ammo. It skips melee weapons, so an upgraded melee weapon keeps its upgrade.
+- "Activate a random gobblegum effect" can roll any BO7 gum. BO3's list of 8 gums only exists in BO3.
+- Wallbuy prices: BO7 wallbuys only sell guns (ammo comes from the ammo cache), so only the gun price is randomised, as in BO3.
 
 ## Install
 
