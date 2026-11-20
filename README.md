@@ -2,7 +2,7 @@
 
 BO7 Zombies port (Kronos) of **Cause And Effect**, the BO3 mod by LogisticalReaper, ported with the author's permission.
 
-Version 0.4. Please report anything that breaks. What has and has not been checked in game is listed in [TESTING.md](TESTING.md).
+Version 0.4.1. Please report anything that breaks. What has and has not been checked in game is listed in [TESTING.md](TESTING.md).
 
 ## How it works
 

@@ -149,7 +149,10 @@ local function render()
     if S.barAlpha~=barAlpha then call(S.bar,"SetAlpha",barAlpha);S.barAlpha=barAlpha end
     if S.barRow~=cur then
         local y=250+cur*30
-        call(S.bar,"SetAnchorsAndPosition",0,1,0,1,545,905,y-1,y+27,S.barRow and 300 or 0,get(get(rawget(_G,"LUI"),"EASING"),"outQuadratic"))
+        local E=get(rawget(_G,"LUI"),"EASING")
+        -- FuzMenu only passes a duration and easing when animating
+        if S.barRow then call(S.bar,"SetAnchorsAndPosition",0,1,0,1,545,905,y-1,y+27,300,get(E,"outQuadratic") or get(E,"linear"))
+        else call(S.bar,"SetAnchorsAndPosition",0,1,0,1,545,905,y-1,y+27) end
         S.barRow=cur
     end
     setLabel(S.desc,DESCS[cur+1],GREY,opts and 1 or 0)
@@ -192,7 +195,7 @@ local function ensureTimer()
             if not animation then S.host=nil;return end
             animation.onComplete=function()
                 if not S.enabled or S.host~=host then return end
-                if not pcall(tick) then clear() end
+                local ok,err=pcall(tick); if not ok then clear(); if not S.err then S.err=1; pcall(print,"[CNE] UI error: "..tostring(err)) end end
                 if not inMatch() then
                     pcall(call,host,"closeTree")
                     if S.host==host then S.host=nil end

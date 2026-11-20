@@ -1,5 +1,20 @@
 # Test report
 
+## 0.4.1 changes (compiled, **not tested in game yet**)
+
+| Change | How to check in game |
+|---|---|
+| "a gumball is eaten" no longer re-triggers itself through "Activate a random gobblegum effect" | Roll that pair: one gum per real gum use, no endless chain |
+| "when a perk is purchased" fires on the perk payment | Buy a perk |
+| Jump toggle blocks jumping (BO7 allow_jump) instead of changing the super jump height | Trigger twice: jumping is blocked; next combo restores it |
+| All-player effects (perks, points, gum give, speed, toggles, 1 damage, bullet, orient) include downed players, as BO3 | Co-op: go down, trigger, check after revive |
+| "The mystery box moves" is only rolled when the box can move | Map with one box or during a fire sale: never rolled |
+| Zombie teleport lands 250-500 units from the player (BO3) | Trigger it |
+| 1 damage triggers "when a player takes damage" again | Roll that pair |
+| Random powerup can drop a nuke | Trigger several times |
+| Give AAT only on a paped gun and never on melee; remove AAT no longer errors without an AAT | Trigger on a non-paped gun: nothing happens |
+| HUD bar placement follows FuzMenu; a HUD error is printed once to the console | Options screen |
+
 ## 0.4 changes (compiled, **not tested in game yet**)
 
 | Change | How to check in game |

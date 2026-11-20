@@ -113,7 +113,7 @@ autoexec init()
     cne_effect( "An earthquake occurs", &cne_e_quake );
     cne_effect( "A random zombie dies", &cne_e_zombie_die );
     cne_effect( "A random player drops a grenade", &cne_e_grenade );
-    cne_effect( "The mystery box moves", &cne_e_box_move );
+    cne_effect( "The mystery box moves", &cne_e_box_move, &cne_box_can_move );
     cne_effect( "Active weapon gets random attachments", &cne_e_atts );
     cne_effect( "Players orientation is slightly changed", &cne_e_orient );
     cne_effect( "A random zombie triggers an AAT", &cne_e_zombie_aat, &cne_aats_exist );
@@ -515,7 +515,6 @@ function cne_options_reader()
 
 function cne_level_bridges()
 {
-    level thread cne_bridge( #"perk_purchased", "cne_perk" );
     level thread cne_bridge( #"hash_8db4924bade08eda", "cne_powerup" );
 }
 
@@ -613,6 +612,11 @@ function cne_on_currency_sub( params )
     {
         return;
     }
+    // level perk_purchased only fires when the mode's var_d2a7b8fafa40d741 > 0; the perk payment always passes here
+    if ( params.var_541e0b0f4fce350e === #"perk" )
+    {
+        level notify( "cne_perk" );
+    }
     if ( params.var_bcfddc715fcfced6 >= 300 )
     {
         level notify( "cne_lose300" );
@@ -630,6 +634,11 @@ function cne_on_door( params )
 
 function cne_on_gum( params )
 {
+    if ( isdefined( self ) && isplayer( self ) && isdefined( params ) && isdefined( self.cne_gum_quiet ) && self.cne_gum_quiet === params.name )
+    {
+        self.cne_gum_quiet = undefined;
+        return;
+    }
     level notify( "cne_gum" );
 }
 
@@ -669,6 +678,20 @@ function cne_players()
     {
         // BO3 is_player_valid: downed players are skipped
         if ( isdefined( player ) && isalive( player ) && !istrue( player.inlaststand ) )
+        {
+            out[ out.size ] = player;
+        }
+    }
+    return out;
+}
+
+// BO3 all-player effects use GetPlayers(): downed players are included (only random picks use is_player_valid)
+function cne_all_players()
+{
+    out = [];
+    foreach ( player in level.players )
+    {
+        if ( isdefined( player ) && isalive( player ) )
         {
             out[ out.size ] = player;
         }
@@ -824,6 +847,8 @@ function cne_use_gum( name )
     self bgb::function_d9c0fbf34ae14706( slot, name, 1, 0 );
     if ( self.var_b02f6e7abbbc8a84[ slot ] === name )
     {
+        // the activation fires on_gobblegum_activated: without this the gum cause re-triggers the gum effect forever
+        self.cne_gum_quiet = name;
         self bgb::function_60937e6f9fe071c5( slot );
     }
 }
@@ -1161,7 +1186,7 @@ function cne_reset_on_new_combo( kind )
         }
         else if ( kind == "jump" )
         {
-            player function_92305205d36aa2e1( 1 );
+            player cne_allow( "allow_jump", 1 );
         }
     }
     level.cne.toggle[ kind ] = undefined;
@@ -1221,7 +1246,7 @@ function cne_e_zombies5()
 
 function cne_e_perk_lose()
 {
-    foreach ( player in cne_players() )
+    foreach ( player in cne_all_players() )
     {
         owned = [];
         foreach ( perk in cne_perk_keys() )
@@ -1240,7 +1265,7 @@ function cne_e_perk_lose()
 
 function cne_e_perk_gain()
 {
-    foreach ( player in cne_players() )
+    foreach ( player in cne_all_players() )
     {
         if ( !player namespace_214d79f87f4bf971::function_e5c588558239ba2a( "allow_zm_perks" ) )
         {
@@ -1263,7 +1288,7 @@ function cne_e_perk_gain()
 
 function cne_e_gain100()
 {
-    foreach ( player in cne_players() )
+    foreach ( player in cne_all_players() )
     {
         cne_set_points( player, cne_points( player ) + 100 );
     }
@@ -1271,7 +1296,7 @@ function cne_e_gain100()
 
 function cne_e_lose100()
 {
-    foreach ( player in cne_players() )
+    foreach ( player in cne_all_players() )
     {
         cne_set_points( player, cne_points( player ) - 100 );
     }
@@ -1279,7 +1304,7 @@ function cne_e_lose100()
 
 function cne_e_gain10p()
 {
-    foreach ( player in cne_players() )
+    foreach ( player in cne_all_players() )
     {
         p = cne_points( player );
         cne_set_points( player, p + int( p / 10 ) );
@@ -1288,7 +1313,7 @@ function cne_e_gain10p()
 
 function cne_e_lose10p()
 {
-    foreach ( player in cne_players() )
+    foreach ( player in cne_all_players() )
     {
         p = cne_points( player );
         cne_set_points( player, p - int( p / 10 ) );
@@ -1319,7 +1344,7 @@ function cne_e_gum_give()
     {
         return;
     }
-    foreach ( player in cne_players() )
+    foreach ( player in cne_all_players() )
     {
         if ( !isdefined( player.var_b02f6e7abbbc8a84 ) )
         {
@@ -1418,7 +1443,7 @@ function cne_e_powerup()
         return;
     }
     names = [];
-    foreach ( name in strtok( "double_points,insta_kill,full_ammo,full_armor,full_power,free_perk,fire_sale,bonus_points_team", "," ) )
+    foreach ( name in strtok( "double_points,insta_kill,full_ammo,full_armor,full_power,free_perk,fire_sale,bonus_points_team,nuke", "," ) )
     {
         if ( isdefined( root.powerups[ name ] ) )
         {
@@ -1443,7 +1468,7 @@ function cne_e_door()
 function cne_e_speed()
 {
     level thread cne_reset_on_new_combo( "speed" );
-    foreach ( player in cne_players() )
+    foreach ( player in cne_all_players() )
     {
         // BO7 recomputes the speed from its val system and overwrites setmovespeedscale
         player namespace_214d79f87f4bf971::set( "cne_speed", "move_speed_scale", randomfloatrange( 0.5, 1.5 ) );
@@ -1475,7 +1500,7 @@ function cne_e_grenade()
 
 function cne_e_orient()
 {
-    foreach ( player in cne_players() )
+    foreach ( player in cne_all_players() )
     {
         player setplayerangles( player getplayerangles() + ( ( -10 + randomint( 20 ) ), ( -10 + randomint( 20 ) ), ( -10 + randomint( 20 ) ) ) );
     }
@@ -1525,7 +1550,12 @@ function cne_e_aat_give()
     }
     foreach ( player in cne_players() )
     {
-        player namespace_cb5c0a8769de6627::function_b166f92c763fbcba( player getcurrentweapon(), names[ randomint( names.size ) ], 1, 1, 1 );
+        // BO3 uses Bullet Boost, which only works on a paped gun
+        w = player getcurrentweapon();
+        if ( player cne_pap_level( w ) > 0 && !cne_is_melee( w ) )
+        {
+            player namespace_cb5c0a8769de6627::function_b166f92c763fbcba( w, names[ randomint( names.size ) ], 1, 1, 1 );
+        }
     }
 }
 
@@ -1533,26 +1563,37 @@ function cne_e_aat_remove()
 {
     foreach ( player in cne_players() )
     {
-        player namespace_cb5c0a8769de6627::function_e6267ae500506234( player getcurrentweapon(), 1 );
+        // the remover loops over the player's AAT list, which is undefined until a first AAT
+        if ( isdefined( player.var_cb5c0a8769de6627 ) )
+        {
+            player namespace_cb5c0a8769de6627::function_e6267ae500506234( player getcurrentweapon(), 1 );
+        }
     }
 }
 
 function cne_e_damage1()
 {
-    foreach ( player in cne_players() )
+    hit = 0;
+    foreach ( player in cne_all_players() )
     {
         // dodamage goes to the BO7 armor first, which hides 1 damage: take it from health directly
         if ( player.health > 1 )
         {
             player.health = player.health - 1;
+            hit = 1;
         }
+    }
+    // BO3 dodamage fires the damage cause; the direct health write does not
+    if ( hit )
+    {
+        level notify( "cne_damage" );
     }
 }
 
 function cne_e_sprint()
 {
     on = cne_toggle( "sprint" );
-    foreach ( player in cne_players() )
+    foreach ( player in cne_all_players() )
     {
         player cne_allow( "sprint", on );
     }
@@ -1561,7 +1602,7 @@ function cne_e_sprint()
 function cne_e_ads()
 {
     on = cne_toggle( "ads" );
-    foreach ( player in cne_players() )
+    foreach ( player in cne_all_players() )
     {
         player cne_allow( "ads", on );
     }
@@ -1570,7 +1611,7 @@ function cne_e_ads()
 function cne_e_slide()
 {
     on = cne_toggle( "slide" );
-    foreach ( player in cne_players() )
+    foreach ( player in cne_all_players() )
     {
         player cne_allow( "slide", on );
     }
@@ -1592,9 +1633,10 @@ function cne_allow( kind, allow )
 function cne_e_jump()
 {
     on = cne_toggle( "jump" );
-    foreach ( player in cne_players() )
+    foreach ( player in cne_all_players() )
     {
-        player function_92305205d36aa2e1( on ? 1 : 0 );
+        // function_92305205d36aa2e1 is the super jump height scale, not allow jump
+        player cne_allow( "allow_jump", on );
     }
 }
 
@@ -1671,13 +1713,13 @@ function cne_e_zombie_tp()
     player = cne_random_player();
     if ( isdefined( zombie ) && isdefined( player ) )
     {
-        zombie forceteleport( cne_nav_near( player.origin, ( 150 + randomint( 150 ) ) ), zombie.angles );
+        zombie forceteleport( cne_nav_near( player.origin, ( 250 + randomint( 251 ) ) ), zombie.angles );
     }
 }
 
 function cne_e_bullet()
 {
-    foreach ( player in cne_players() )
+    foreach ( player in cne_all_players() )
     {
         w = player getcurrentweapon();
         clip = player getweaponammoclip( w );
@@ -1701,15 +1743,38 @@ function cne_shuffle( a )
 }
 
 // the game's own box swap (magicbox hide / show), within the active box's group
+// BO3 validator function_6b3ff0a7: another chest exists, no fire sale, box not moving
+function cne_box_can_move()
+{
+    return cne_box_dests().size > 0;
+}
+
 function cne_e_box_move()
 {
-    if ( istrue( level.var_5542fc8f8eafa0c0 ) || !isdefined( level.var_1bbb5557537e2c0c ) )
+    opts = cne_box_dests();
+    if ( opts.size == 0 )
     {
         return;
     }
+    cur = level.cne_box_cur;
+    dest = opts[ randomint( opts.size ) ];
+    cur magicbox::function_3fc5ec87d3083d53( 1, 0 );
+    cur.var_f14b2b4820b635e7 = undefined;
+    dest magicbox::function_d032ba44d110e870( 1, 0 );
+    dest.var_f14b2b4820b635e7 = 1;
+}
+
+// chests the box can move to; sets level.cne_box_cur
+function cne_box_dests()
+{
+    opts = [];
+    if ( istrue( level.var_5542fc8f8eafa0c0 ) || !isdefined( level.var_1bbb5557537e2c0c ) )
+    {
+        return opts;
+    }
     if ( namespace_60b3bdcc70f79fc6::function_f0bb112fe637e41c( "powerup_fire_sale_active" ) || namespace_60b3bdcc70f79fc6::function_f0bb112fe637e41c( "magicbox_moving" ) )
     {
-        return;
+        return opts;
     }
     cur = undefined;
     foreach ( b in level.var_1bbb5557537e2c0c )
@@ -1721,14 +1786,13 @@ function cne_e_box_move()
     }
     if ( !isdefined( cur ) || istrue( cur.var_c73496e2485e061c ) || !isdefined( level.var_e0e84452fe117b5f[ cur.var_93e4a0a8514ca47e ] ) )
     {
-        return;
+        return opts;
     }
     use = cur.var_97c6497c84d770a;
     if ( isdefined( use ) && isdefined( use.var_4cf63ec91b753a3c ) && istrue( use.var_4cf63ec91b753a3c.var_6365ea93403efebd ) )
     {
-        return;
+        return opts;
     }
-    opts = [];
     foreach ( b in level.var_e0e84452fe117b5f[ cur.var_93e4a0a8514ca47e ] )
     {
         if ( b == cur || istrue( b.var_c5f5d57861834358 ) )
@@ -1741,15 +1805,8 @@ function cne_e_box_move()
         }
         opts[ opts.size ] = b;
     }
-    if ( opts.size == 0 )
-    {
-        return;
-    }
-    dest = opts[ randomint( opts.size ) ];
-    cur magicbox::function_3fc5ec87d3083d53( 1, 0 );
-    cur.var_f14b2b4820b635e7 = undefined;
-    dest magicbox::function_d032ba44d110e870( 1, 0 );
-    dest.var_f14b2b4820b635e7 = 1;
+    level.cne_box_cur = cur;
+    return opts;
 }
 
 // BO3: 0.5x to 2x the original price, rounded to 10 (the buy and the hint read .cost live)
